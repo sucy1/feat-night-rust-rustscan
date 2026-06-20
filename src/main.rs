@@ -4,7 +4,7 @@
 
 use rustscan::benchmark::{Benchmark, NamedTimer};
 use rustscan::input::{self, Config, Opts, OutputFormat, ScriptsRequired};
-use rustscan::output_formatter::{CsvWriter, OutputWriter, PortResult, Protocol};
+use rustscan::output_formatter::{CsvWriter, PortResult, Protocol};
 use rustscan::port_strategy::PortStrategy;
 use rustscan::scanner::Scanner;
 use rustscan::scripts::{init_scripts, Script, ScriptFile};
@@ -131,7 +131,9 @@ fn main() {
 
     if opts.format == OutputFormat::Csv {
         let mut csv_writer = CsvWriter::new();
-        println!("{}", csv_writer.write_header());
+        if let Some(header) = csv_writer.write_header() {
+            println!("{}", header);
+        }
         for socket in &scan_result_sorted {
             let result = PortResult::new(*socket, protocol);
             println!("{}", csv_writer.write_result(&result));

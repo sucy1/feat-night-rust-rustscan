@@ -1,12 +1,11 @@
 //! Output formatting module for RustScan.
 //!
-//! This module provides different output formatters for scan results,
-//! including CSV and other structured output formats.
+//! This module provides CSV output formatting for scan results.
 
 use std::net::SocketAddr;
 
 /// Represents the protocol of a scanned port
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -45,14 +44,7 @@ impl PortResult {
     }
 }
 
-/// Trait for output writers
-pub trait OutputWriter {
-    fn write_header(&mut self) -> String;
-    fn write_result(&mut self, result: &PortResult) -> String;
-    fn write_footer(&mut self) -> String;
-}
-
-/// CSV output writer
+/// CSV output writer following RFC 4180
 #[derive(Debug, Default)]
 pub struct CsvWriter {
     header_written: bool,
@@ -66,30 +58,27 @@ impl CsvWriter {
     }
 
     fn escape_field(field: &str) -> String {
-        if field.contains(',')
-            || field.contains('"')
-            || field.contains('\n')
-            || field.contains('\r')
-        {
+        let needs_quoting = field
+            .chars()
+            .any(|c| c == ',' || c == '"' || c == '\n' || c == '\r');
+        if needs_quoting {
             let escaped = field.replace('"', "\"\"");
             format!("\"{}\"", escaped)
         } else {
             field.to_string()
         }
     }
-}
 
-impl OutputWriter for CsvWriter {
-    fn write_header(&mut self) -> String {
+    pub fn write_header(&mut self) -> Option<String> {
         if self.header_written {
-            return String::new();
+            return None;
         }
         self.header_written = true;
-        "ip,port,protocol,state,service,version".to_string()
+        Some("ip,port,protocol,state,service,version".to_string())
     }
 
-    fn write_result(&mut self, result: &PortResult) -> String {
-        let fields = vec![
+    pub fn write_result(&mut self, result: &PortResult) -> String {
+        let fields = [
             Self::escape_field(&result.ip),
             result.port.to_string(),
             result.protocol.to_string(),
@@ -99,22 +88,18 @@ impl OutputWriter for CsvWriter {
         ];
         fields.join(",")
     }
-
-    fn write_footer(&mut self) -> String {
-        String::new()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
     #[test]
     fn test_csv_header() {
         let mut writer = CsvWriter::new();
         let header = writer.write_header();
-        assert_eq!(header, "ip,port,protocol,state,service,version");
+        assert_eq!(header, Some("ip,port,protocol,state,service,version".to_string()));
     }
 
     #[test]
@@ -122,8 +107,8 @@ mod tests {
         let mut writer = CsvWriter::new();
         let header1 = writer.write_header();
         let header2 = writer.write_header();
-        assert_eq!(header1, "ip,port,protocol,state,service,version");
-        assert_eq!(header2, "");
+        assert_eq!(header1, Some("ip,port,protocol,state,service,version".to_string()));
+        assert_eq!(header2, None);
     }
 
     #[test]
@@ -182,10 +167,7 @@ mod tests {
         result.service = "https".to_string();
         result.version = "Apache 2.4.41".to_string();
         let line = writer.write_result(&result);
-        assert_eq!(
-            line,
-            "192.168.1.1,443,tcp,open,https,Apache 2.4.41"
-        );
+        assert_eq!(line, "192.168.1.1,443,tcp,open,https,Apache 2.4.41");
     }
 
     #[test]
@@ -201,14 +183,13 @@ mod tests {
         let result2 = PortResult::new(socket2, Protocol::Tcp);
         let line2 = writer.write_result(&result2);
 
-        assert_eq!(header, "ip,port,protocol,state,service,version");
+        assert_eq!(header, Some("ip,port,protocol,state,service,version".to_string()));
         assert_eq!(line1, "127.0.0.1,80,tcp,open,,");
         assert_eq!(line2, "127.0.0.1,443,tcp,open,,");
     }
 
     #[test]
     fn test_csv_ipv6_address() {
-        use std::net::Ipv6Addr;
         let mut writer = CsvWriter::new();
         let socket = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 8080);
         let result = PortResult::new(socket, Protocol::Tcp);
@@ -232,13 +213,6 @@ mod tests {
         assert_eq!(result.state, "open");
         assert_eq!(result.service, "");
         assert_eq!(result.version, "");
-    }
-
-    #[test]
-    fn test_csv_footer_empty() {
-        let mut writer = CsvWriter::new();
-        let footer = writer.write_footer();
-        assert_eq!(footer, "");
     }
 
     #[test]
@@ -268,10 +242,7 @@ mod tests {
         let mut result = PortResult::new(socket, Protocol::Tcp);
         result.version = "Apache \"2.4.41\" (Ubuntu)".to_string();
         let line = writer.write_result(&result);
-        assert_eq!(
-            line,
-            "127.0.0.1,80,tcp,open,,\"Apache \"\"2.4.41\"\" (Ubuntu)\""
-        );
+        assert_eq!(line, "127.0.0.1,80,tcp,open,,\"Apache \"\"2.4.41\"\" (Ubuntu)\"");
     }
 
     #[test]
@@ -300,7 +271,6 @@ mod tests {
 
     #[test]
     fn test_csv_ip_field_with_ipv6_colons_not_escaped() {
-        use std::net::Ipv6Addr;
         let mut writer = CsvWriter::new();
         let socket = SocketAddr::new(
             IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
