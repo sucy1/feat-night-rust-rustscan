@@ -47,23 +47,31 @@ fn main() {
     let config = Config::read(opts.config_path.clone());
     opts.merge(&config);
 
+    let is_csv_format = opts.format == OutputFormat::Csv;
+
+    if is_csv_format {
+        opts.greppable = true;
+    }
+
     debug!("Main() `opts` arguments are {opts:?}");
 
     let scripts_to_run: Vec<ScriptFile> = match init_scripts(&opts.scripts) {
         Ok(scripts_to_run) => scripts_to_run,
         Err(e) => {
-            warning!(
-                format!("Initiating scripts failed!\n{e}"),
-                opts.greppable,
-                opts.accessible
-            );
+            if is_csv_format {
+                eprintln!("Initiating scripts failed! {e}");
+            } else {
+                warning!(
+                    format!("Initiating scripts failed!\n{e}"),
+                    opts.greppable,
+                    opts.accessible
+                );
+            }
             std::process::exit(1);
         }
     };
 
     debug!("Scripts initialized {:?}", &scripts_to_run);
-
-    let is_csv_format = opts.format == OutputFormat::Csv;
 
     if !opts.greppable && !opts.accessible && !opts.no_banner && !is_csv_format {
         print_opening(&opts);

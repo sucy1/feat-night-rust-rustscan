@@ -66,7 +66,11 @@ impl CsvWriter {
     }
 
     fn escape_field(field: &str) -> String {
-        if field.contains(',') || field.contains('"') || field.contains('\n') {
+        if field.contains(',')
+            || field.contains('"')
+            || field.contains('\n')
+            || field.contains('\r')
+        {
             let escaped = field.replace('"', "\"\"");
             format!("\"{}\"", escaped)
         } else {
@@ -235,5 +239,90 @@ mod tests {
         let mut writer = CsvWriter::new();
         let footer = writer.write_footer();
         assert_eq!(footer, "");
+    }
+
+    #[test]
+    fn test_csv_field_with_carriage_return() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.version = "1.0\r\n2.0".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(line, "127.0.0.1,80,tcp,open,,\"1.0\r\n2.0\"");
+    }
+
+    #[test]
+    fn test_csv_service_with_comma() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.service = "http, www, web".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(line, "127.0.0.1,80,tcp,open,\"http, www, web\",");
+    }
+
+    #[test]
+    fn test_csv_version_with_quotes() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.version = "Apache \"2.4.41\" (Ubuntu)".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(
+            line,
+            "127.0.0.1,80,tcp,open,,\"Apache \"\"2.4.41\"\" (Ubuntu)\""
+        );
+    }
+
+    #[test]
+    fn test_csv_service_with_newline() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.service = "http\nhttps".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(line, "127.0.0.1,80,tcp,open,\"http\nhttps\",");
+    }
+
+    #[test]
+    fn test_csv_both_service_and_version_with_special_chars() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.service = "proxy, http".to_string();
+        result.version = "Nginx \"1.18.0\"\n(Ubuntu)".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(
+            line,
+            "192.168.1.1,8080,tcp,open,\"proxy, http\",\"Nginx \"\"1.18.0\"\"\n(Ubuntu)\""
+        );
+    }
+
+    #[test]
+    fn test_csv_ip_field_with_ipv6_colons_not_escaped() {
+        use std::net::Ipv6Addr;
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+            443,
+        );
+        let result = PortResult::new(socket, Protocol::Tcp);
+        let line = writer.write_result(&result);
+        assert_eq!(line, "2001:db8::1,443,tcp,open,,");
+    }
+
+    #[test]
+    fn test_csv_all_fields_escaped() {
+        let mut writer = CsvWriter::new();
+        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 22);
+        let mut result = PortResult::new(socket, Protocol::Tcp);
+        result.state = "open, filtered".to_string();
+        result.service = "ssh, remote shell".to_string();
+        result.version = "OpenSSH \"8.9p1\"\nUbuntu".to_string();
+        let line = writer.write_result(&result);
+        assert_eq!(
+            line,
+            "127.0.0.1,22,tcp,\"open, filtered\",\"ssh, remote shell\",\"OpenSSH \"\"8.9p1\"\"\nUbuntu\""
+        );
     }
 }
