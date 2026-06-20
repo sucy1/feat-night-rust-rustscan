@@ -3,7 +3,8 @@
 #![allow(clippy::doc_markdown, clippy::if_not_else, clippy::non_ascii_literal)]
 
 use rustscan::benchmark::{Benchmark, NamedTimer};
-use rustscan::input::{self, Config, Opts, ScriptsRequired};
+use rustscan::input::{self, Config, Opts, OutputFormat, ScriptsRequired};
+use rustscan::output_formatter::{CsvWriter, OutputWriter, PortResult, Protocol};
 use rustscan::port_strategy::PortStrategy;
 use rustscan::scanner::Scanner;
 use rustscan::scripts::{init_scripts, Script, ScriptFile};
@@ -62,18 +63,24 @@ fn main() {
 
     debug!("Scripts initialized {:?}", &scripts_to_run);
 
-    if !opts.greppable && !opts.accessible && !opts.no_banner {
+    let is_csv_format = opts.format == OutputFormat::Csv;
+
+    if !opts.greppable && !opts.accessible && !opts.no_banner && !is_csv_format {
         print_opening(&opts);
     }
 
     let ips: Vec<IpAddr> = parse_addresses(&opts);
 
     if ips.is_empty() {
-        warning!(
-            "No IPs could be resolved, aborting scan.",
-            opts.greppable,
-            opts.accessible
-        );
+        if is_csv_format {
+            eprintln!("No IPs could be resolved, aborting scan.");
+        } else {
+            warning!(
+                "No IPs could be resolved, aborting scan.",
+                opts.greppable,
+                opts.accessible
+            );
+        }
         std::process::exit(1);
     }
 
@@ -102,16 +109,30 @@ fn main() {
     benchmarks.push(portscan_bench);
 
     let mut ports_per_ip = HashMap::new();
+    let protocol = if opts.udp { Protocol::Udp } else { Protocol::Tcp };
 
-    for socket in scan_result {
+    let mut scan_result_sorted = scan_result.clone();
+    scan_result_sorted.sort_by(|a, b| a.ip().cmp(&b.ip()).then(a.port().cmp(&b.port())));
+
+    for socket in &scan_result_sorted {
         ports_per_ip
             .entry(socket.ip())
             .or_insert_with(Vec::new)
             .push(socket.port());
     }
 
-    for ip in ips {
-        if ports_per_ip.contains_key(&ip) {
+    if opts.format == OutputFormat::Csv {
+        let mut csv_writer = CsvWriter::new();
+        println!("{}", csv_writer.write_header());
+        for socket in &scan_result_sorted {
+            let result = PortResult::new(*socket, protocol);
+            println!("{}", csv_writer.write_result(&result));
+        }
+        return;
+    }
+
+    for ip in &ips {
+        if ports_per_ip.contains_key(ip) {
             continue;
         }
 

@@ -27,6 +27,14 @@ pub enum ScriptsRequired {
     Custom,
 }
 
+/// Represents the output format for scan results.
+#[derive(Deserialize, Debug, ValueEnum, Clone, PartialEq, Eq, Copy)]
+pub enum OutputFormat {
+    Standard,
+    Grep,
+    Csv,
+}
+
 /// Represents the range of ports to be scanned.
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PortRange {
@@ -99,6 +107,10 @@ pub struct Opts {
     /// Greppable mode. Only output the ports. No Nmap. Useful for grep or outputting to a file.
     #[arg(short, long)]
     pub greppable: bool,
+
+    /// Output format. Supported formats: standard, grep, csv.
+    #[arg(long, value_enum, ignore_case = true, default_value = "standard")]
+    pub format: OutputFormat,
 
     /// Accessible mode. Turns off features which negatively affect screen readers.
     #[arg(long)]
@@ -199,8 +211,8 @@ impl Opts {
         }
 
         merge_required!(
-            addresses, greppable, accessible, batch_size, timeout, tries, scan_order, scripts,
-            command, udp, no_banner
+            addresses, greppable, format, accessible, batch_size, timeout, tries, scan_order,
+            scripts, command, udp, no_banner
         );
     }
 
@@ -231,6 +243,7 @@ impl Default for Opts {
             ports: None,
             range: None,
             greppable: true,
+            format: OutputFormat::Standard,
             batch_size: 0,
             timeout: 0,
             tries: 0,
@@ -261,6 +274,7 @@ pub struct Config {
     ports: Option<Vec<u16>>,
     range: Option<PortRange>,
     greppable: Option<bool>,
+    format: Option<OutputFormat>,
     accessible: Option<bool>,
     batch_size: Option<usize>,
     timeout: Option<u32>,
@@ -353,6 +367,7 @@ mod tests {
                 ports: None,
                 range: None,
                 greppable: Some(true),
+                format: None,
                 batch_size: Some(25_000),
                 timeout: Some(1_000),
                 tries: Some(1),
